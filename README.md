@@ -2,6 +2,11 @@
 
 Python ve Streamlit ile hazırlanmış sade, modüler akademik proje.
 
+Arayüz Araç, Ev ve Kullanım bölümlerinden oluşur. Sonuç ekranı önerilen cihazı,
+fiyatını, efektif gücünü, yaklaşık günlük şarj süresini ve en fazla üç seçeneğin
+karşılaştırmasını gösterir. AHP, ELECTRE I ve TOPSIS çıktıları sayfa altındaki
+kapalı **Hesaplama detaylarını göster** bölümündedir.
+
 ## Kurulum ve çalıştırma
 
 Python 3.10 veya üzeri kullanın. Proje klasöründe:
@@ -45,13 +50,19 @@ Resmî kılavuz: https://docs.streamlit.io/deploy/streamlit-community-cloud/depl
 
 1. Bütçeyi aşan veya ev ile aynı fazda olmayan cihazlar elenir. CSV farklı fazda çalışabilme bilgisi içermediğinden aynı faz şartı uygulanır. Gerçekte bazı monofaz cihazlar trifaz tesisata bağlanabilir; bu model bunu değerlendirmez. Ev gücü, diğer tüketimler sonrasında şarja ayrılabilecek güç olarak girilir.
 2. Efektif güç `min(araç AC gücü, ev gücü, istasyon gücü)`; günlük enerji `km × tüketim / 100`; süre `enerji / efektif güç` olarak hesaplanır. Batarya kapasitesi ideal tam şarj süresinde ve günlük enerji uyarısında kullanılır; günlük ihtiyacı sınırlandırmaz. Şarj kayıpları, sıcaklık ve güç değişimi süre hesabına dahil değildir.
-3. AHP için 6 kriterin 15 ikili karşılaştırması alınır. Köşegen 1, alt üçgen üst üçgenin tersidir. Sütun normalizasyonunun satır ortalamaları ağırlıkları verir. `lambda_max ≈ ortalama((A @ w) / w)`, `CI = (lambda_max − n) / (n − 1)`, `CR = CI / RI`. Altı kriter için Saaty RI değeri 1.24 kullanılır. Bu, satır ortalaması ağırlıklarıyla yaklaşık lambda hesabıdır. Yalnızca `CR < 0.10` olduğunda devam edilir.
+3. Sade arayüzde AHP ikili karşılaştırma matrisi tüm kriterler eşit önemle başlayacak şekilde 1 değerlerinden oluşur. AHP modülü genel bir ikili matrisi de kabul eder; sütun normalizasyonunun satır ortalamaları ağırlıkları verir. `lambda_max ≈ ortalama((A @ w) / w)`, `CI = (lambda_max − n) / (n − 1)`, `CR = CI / RI`. Altı kriter için Saaty RI değeri 1.24 kullanılır. Bu, satır ortalaması ağırlıklarıyla yaklaşık lambda hesabıdır. `CR < 0.10` tutarlı kabul edilir.
 4. Karar kriterleri sırasıyla fiyat (maliyet), efektif güç, güvenlik, akıllı özellik, garanti ve verimliliktir (fayda). Günlük şarj süresi güçten türediği için ayrıca kriter yapılmamıştır. Verimlilik 0–1, puanlar 0–10 aralığındadır.
-5. ELECTRE I ve TOPSIS sütunlarda Öklid normuyla normalizasyon yapar, ardından AHP ağırlıklarını uygular. ELECTRE uyumu, satır alternatifinin kötü olmadığı kriterlerin ağırlık toplamıdır. Uyumsuzluk, ağırlıklı matriste en büyük aleyhte farkın tüm kriterlerdeki en büyük mutlak farka oranıdır. Fark yoksa 0 alınır. Eşikler kullanıcı tarafından ayarlanır; varsayılanlar 0.65 ve 0.35'tir. Köşegen üstünlük ilişkisi yoktur.
+5. ELECTRE I ve TOPSIS sütunlarda Öklid normuyla normalizasyon yapar, ardından AHP ağırlıklarını uygular. ELECTRE uyumu, satır alternatifinin kötü olmadığı kriterlerin ağırlık toplamıdır. Uyumsuzluk, ağırlıklı matriste en büyük aleyhte farkın tüm kriterlerdeki en büyük mutlak farka oranıdır. Fark yoksa 0 alınır. Sade arayüzde eşikler 0.65 ve 0.35'tir. Köşegen üstünlük ilişkisi yoktur.
 6. ELECTRE ilişkileri açıklayıcı olarak sunulur; ayrıca eleme yapılmaz. TOPSIS bütün teknik olarak uygun alternatifleri sıralar. Böylece ELECTRE döngüleri veya karşılaştırılamayan alternatifler TOPSIS'i engellemez.
 7. TOPSIS `C = S− / (S+ + S−)` ile azalan sırada sıralar. Tek alternatif veya tüm alternatifler aynıysa skor 0.5 kabul edilir. Eşitlikte CSV sırası korunur. Bu skor bir olasılık değildir.
 
 CSV ürünleri ve fiyatları tamamen temsili olup gerçek piyasa önerisi değildir. Bütçe cihaz bedelidir; kurulum maliyeti modele dahil değildir.
+
+Teknik bir değer için **Bilmiyorum** seçilirse arayüz ön değerlendirme yapar:
+araç AC gücü 7,4 kW, batarya 60 kWh, tüketim 18 kWh/100 km ve evde
+şarja ayrılabilen güç 3,7 kW varsayılır. Faz bilinmiyorsa mevcut teknik filtre
+monofaz ve trifaz için ayrı ayrı çalıştırılır. Sonuç kesin uyumluluk olarak
+sunulmaz; gerçek değerler ve faz satın almadan önce doğrulanmalıdır.
 
 ## Test
 

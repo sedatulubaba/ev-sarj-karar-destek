@@ -1,4 +1,4 @@
-"""Streamlit arayüzünün temel kullanıcı akışlarını kontrol eder."""
+"""Sade Streamlit arayüzünün kullanıcı akışları."""
 
 import unittest
 from pathlib import Path
@@ -11,30 +11,36 @@ class AppTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / "app.py"
         return AppTest.from_file(str(path), default_timeout=30).run()
 
-    def test_default_and_three_phase(self):
+    def test_initial_and_submitted_result(self):
         app = self.create_app()
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(len(app.metric), 4)
-        app.sidebar.selectbox[0].set_value("trifaz").run()
+        self.assertEqual(len(app.dataframe), 0)
+        self.assertEqual(len(app.expander), 2)
+        app.button[0].click().run()
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(len(app.metric), 4)
+        self.assertTrue(any("Teknik uygunluk" in item.value for item in app.markdown))
+        self.assertGreaterEqual(len(app.dataframe), 3)
+
+    def test_unknown_phase_is_provisional(self):
+        app = self.create_app()
+        app.selectbox(key="home_phase").set_value("Bilmiyorum")
+        app.button[0].click().run()
+        self.assertEqual(len(app.exception), 0)
+        self.assertTrue(any("Ön değerlendirme" in item.value for item in app.markdown))
+
+    def test_unknown_vehicle_value_is_provisional(self):
+        app = self.create_app()
+        app.checkbox(key="vehicle_ac_kw_unknown").check()
+        app.button[0].click().run()
+        self.assertEqual(len(app.exception), 0)
+        self.assertTrue(any("Ön değerlendirme" in item.value for item in app.markdown))
 
     def test_no_suitable_station(self):
         app = self.create_app()
-        app.sidebar.number_input[5].set_value(1.0).run()
+        app.number_input(key="budget").set_value(1.0)
+        app.button[0].click().run()
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(len(app.metric), 0)
-        self.assertTrue(any("Uygun istasyon bulunamadı" in item.value for item in app.warning))
-
-    def test_inconsistent_ahp_stops_ranking(self):
-        app = self.create_app()
-        app.selectbox(key="ahp_0_1").set_value(9.0)
-        app.selectbox(key="ahp_0_2").set_value(1 / 9)
-        app.selectbox(key="ahp_1_2").set_value(9.0)
-        app.run()
-        self.assertEqual(len(app.exception), 0)
-        self.assertEqual(len(app.metric), 0)
-        self.assertTrue(any("tutarsız" in item.value for item in app.error))
+        self.assertTrue(any("uygun cihaz bulunamadı" in item.value for item in app.warning))
 
 
 if __name__ == "__main__":

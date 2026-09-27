@@ -1,4 +1,4 @@
-"""Çalıştırma: python -m streamlit run app.py"""
+"""Ev tipi şarj cihazı seçim arayüzü. Çalıştırma: streamlit run app.py"""
 
 from pathlib import Path
 
@@ -13,165 +13,207 @@ from algorithms.topsis import calculate_topsis
 from utils.helpers import CRITERIA, load_stations
 
 
+# Bilinmeyen değerler yalnızca ön değerlendirme için kullanılır.
+ASSUMED = {"vehicle_ac_kw": 7.4, "battery_kwh": 60.0,
+           "consumption": 18.0, "home_max_kw": 3.7}
+
+
+def apply_style():
+    """Boşluk, sakin renkler ve küçük ekranlarda rahat okuma."""
+    st.markdown("""
+    <style>
+      :root { color-scheme: light; }
+      .stApp { background: #fafafa; color: #1d1d1f; }
+      .block-container { max-width: 850px; padding-top: 4rem; padding-bottom: 5rem; }
+      h1, h2, h3, p, label { letter-spacing: -0.02em; }
+      h1 { font-size: clamp(2rem, 5vw, 3rem) !important; font-weight: 650 !important;
+           line-height: 1.12 !important; }
+      h2 { font-size: 1.35rem !important; font-weight: 620 !important; margin-top: 2rem !important; }
+      h3 { font-size: 1.12rem !important; font-weight: 600 !important; }
+      [data-testid="stForm"] { border: 0; padding: 0; background: transparent; }
+      [data-testid="stFormSubmitButton"] button { background: #1d1d1f; color: #fff;
+          border: 1px solid #1d1d1f; border-radius: 10px; min-height: 2.9rem;
+          padding: .45rem 1.3rem; box-shadow: none; }
+      [data-testid="stFormSubmitButton"] button:hover { background: #3a3a3c; color: #fff;
+          border-color: #3a3a3c; }
+      [data-testid="stExpander"] { border: 1px solid #e5e5e7; border-radius: 10px;
+          background: #fff; box-shadow: none; }
+      hr { border-color: #e5e5e7 !important; }
+      @media (max-width: 640px) {
+        .block-container { padding: 2rem 1.1rem 3rem; }
+        h1 { font-size: 2rem !important; }
+      }
+    </style>""", unsafe_allow_html=True)
+
+
+def optional_number(label, key, default, minimum, step):
+    """Her teknik sayısal alan için ayrı Bilmiyorum seçimi."""
+    unknown = st.checkbox("Bilmiyorum", key=f"{key}_unknown")
+    value = st.number_input(label, min_value=minimum, value=default, step=step,
+                            disabled=unknown, key=key)
+    return (ASSUMED[key] if unknown else value), unknown
+
+
 def get_user_inputs():
-    """Araç, ev ve bütçe bilgilerini kenar çubuğundan alır."""
-    with st.sidebar:
-        st.header("Araç ve ev bilgileri")
-        return {
-            "daily_km": st.number_input("Günlük ortalama km", min_value=0.0, value=50.0),
-            "vehicle_ac_kw": st.number_input("Aracın maksimum AC gücü (kW)", min_value=0.1, value=11.0),
-            "battery_kwh": st.number_input("Batarya kapasitesi (kWh)", min_value=0.1, value=60.0),
-            "consumption": st.number_input("Araç tüketimi (kWh/100 km)", min_value=0.1, value=18.0),
-            "home_phase": st.selectbox("Ev elektrik altyapısı", ["monofaz", "trifaz"]),
-            "home_max_kw": st.number_input("Şarja ayrılabilecek ev gücü (kW)", min_value=0.1, value=7.4),
-            "budget": st.number_input("Maksimum cihaz bütçesi (TL)", min_value=1.0, value=30000.0, step=1000.0),
-        }
+    """Üç bölümlü formdan değerleri ve varsayım açıklamalarını alır."""
+    assumptions = []
+    with st.form("charging_form"):
+        st.subheader("Araç")
+        vehicle_ac_kw, unknown = optional_number("Maksimum AC şarj gücü (kW)",
+                                                  "vehicle_ac_kw", 11.0, 0.1, 0.1)
+        if unknown:
+            assumptions.append("Araç AC gücü 7,4 kW varsayıldı.")
+        battery_kwh, unknown = optional_number("Batarya kapasitesi (kWh)",
+                                                "battery_kwh", 60.0, 0.1, 0.1)
+        if unknown:
+            assumptions.append("Batarya kapasitesi 60 kWh varsayıldı.")
+        consumption, unknown = optional_number("Araç tüketimi (kWh/100 km)",
+                                                "consumption", 18.0, 0.1, 0.1)
+        if unknown:
+            assumptions.append("Tüketim 18 kWh/100 km varsayıldı.")
+        st.divider()
+        st.subheader("Ev")
+        phase_choice = st.selectbox("Elektrik altyapısı", ["Monofaz", "Trifaz", "Bilmiyorum"],
+                                    key="home_phase")
+        home_max_kw, unknown = optional_number("Şarja ayrılabilecek maksimum güç (kW)",
+                                               "home_max_kw", 7.4, 0.1, 0.1)
+        if unknown:
+            assumptions.append("Evde şarja ayrılabilecek güç 3,7 kW varsayıldı.")
+        if phase_choice == "Bilmiyorum":
+            assumptions.append("Ev fazı bilinmiyor; iki faz seçeneği ayrı ayrı değerlendirildi.")
+        st.divider()
+        st.subheader("Kullanım")
+        daily_km = st.number_input("Günlük ortalama km", min_value=0.0, value=50.0,
+                                   step=1.0, key="daily_km")
+        budget = st.number_input("Maksimum cihaz bütçesi (TL)", min_value=1.0,
+                                 value=30000.0, step=1000.0, key="budget")
+        submitted = st.form_submit_button("Uygun şarj cihazlarını göster", type="primary")
+    inputs = {"daily_km": daily_km, "vehicle_ac_kw": vehicle_ac_kw,
+              "battery_kwh": battery_kwh, "consumption": consumption,
+              "home_max_kw": home_max_kw, "budget": budget}
+    return submitted, inputs, phase_choice, assumptions
 
 
-def get_ahp_matrix(labels):
-    """Üst üçgeni kullanıcıdan alır; ters değerleri otomatik tamamlar."""
-    matrix = np.ones((len(labels), len(labels)))
-    scale = [1 / 9, 1 / 8, 1 / 7, 1 / 6, 1 / 5, 1 / 4, 1 / 3, 1 / 2,
-             1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
-
-    def format_scale(value):
-        return f"1/{round(1 / value)}" if value < 1 else str(int(value))
-
-    with st.expander("AHP ikili karşılaştırmalarını düzenle"):
-        st.write("1: eşit önem; 3: orta; 5: güçlü; 7: çok güçlü; 9: aşırı önem. "
-                 "1'den büyük değer soldaki kriteri, kesirli değer sağdaki kriteri önemser.")
-        st.caption("Başlangıçta tüm kriterler eşit önemdedir. Fiyatın önemli olması düşük fiyatı tercih ettirir.")
-        for i in range(len(labels)):
-            for j in range(i + 1, len(labels)):
-                value = st.selectbox(f"{labels[i]} / {labels[j]}", scale, index=8,
-                                      format_func=format_scale, key=f"ahp_{i}_{j}")
-                matrix[i, j] = value
-                matrix[j, i] = 1 / value
-        st.dataframe(pd.DataFrame(matrix, index=labels, columns=labels))
-    return matrix
+def get_suitable_stations(stations, inputs, phase_choice):
+    """Bilinmeyen fazda mevcut filtreyi iki faz için ayrı çalıştırır."""
+    phases = (["monofaz", "trifaz"] if phase_choice == "Bilmiyorum"
+              else [phase_choice.lower()])
+    parts = []
+    for phase in phases:
+        suitable, _ = filter_stations(stations, home_phase=phase, **inputs)
+        parts.append(suitable)
+    return pd.concat(parts, ignore_index=True)
 
 
-def show_results(suitable, topsis, electre, weights, labels):
-    """Öneriyi, gerekçelerini ve tüm alternatiflerin sıralamasını gösterir."""
-    best_index = int(topsis["ranking"][0])
-    best = suitable.iloc[best_index]
-    st.header("Önerilen şarj istasyonu")
-    st.subheader(f"{best['marka']} — {best['model']}")
-    columns = st.columns(4)
-    columns[0].metric("TOPSIS skoru", f"{topsis['scores'][best_index]:.4f}")
-    columns[1].metric("Efektif güç", f"{best['efektif_guc']:.2f} kW")
-    columns[2].metric("Günlük şarj süresi", f"{best['sarj_suresi']:.2f} saat")
-    columns[3].metric("Cihaz fiyatı", f"{best['fiyat']:,.0f} TL")
-    st.write(f"ELECTRE: {int(electre['outgoing'][best_index])} alternatife üstünlük ilişkisi kuruyor; "
-             f"{int(electre['incoming'][best_index])} alternatif bu cihaza üstünlük ilişkisi kuruyor.")
-    st.markdown("- Bütçe ve faz uygunluğu koşullarını sağlıyor.\n"
-                "- Seçilen AHP ağırlıklarıyla en yüksek TOPSIS yakınlık katsayısına sahip.\n"
-                f"- Günlük {best['gunluk_enerji']:.2f} kWh ihtiyacı yaklaşık "
-                f"{best['sarj_suresi']:.2f} saatte karşılıyor.")
-    important = np.argsort(-weights, kind="stable")[:2]
-    for index in important:
-        key = list(CRITERIA)[index]
-        st.write(f"• Öncelikli kriter: {labels[index]} (ağırlık %{weights[index] * 100:.1f}); "
-                 f"bu cihazın değeri {best[key]:.2f}.")
-    if np.isclose(topsis["scores"], topsis["scores"][best_index], atol=1e-12, rtol=0).sum() > 1:
-        st.info("En yüksek skorda eşitlik var. Öneri, CSV sırasındaki ilk eşit alternatif olarak gösterildi.")
-    if len(suitable) == 1:
-        st.info("Tek uygun alternatif var; göreli karşılaştırma yapılamadığından TOPSIS skoru 0.5 kabul edildi.")
-    st.caption(f"İdeal koşullarda 0–100% şarj süresi: {best['tam_sarj_suresi']:.2f} saat. "
-               "TOPSIS skoru bir başarı olasılığı değildir; mevcut alternatiflere göre hesaplanır.")
+def analyze(suitable):
+    """Mevcut AHP, ELECTRE I ve TOPSIS fonksiyonlarını kullanır."""
+    labels = [item[0] for item in CRITERIA.values()]
+    directions = [item[1] for item in CRITERIA.values()]
+    # Ana ekranda karşılaştırma formu yok; eşit ağırlıklar seçilmiştir.
+    ahp = calculate_ahp(np.ones((len(CRITERIA), len(CRITERIA))))
+    matrix = suitable[list(CRITERIA)].to_numpy(dtype=float)
+    electre = calculate_electre(matrix, ahp["weights"], directions)
+    topsis = calculate_topsis(matrix, ahp["weights"], directions)
+    return ahp, electre, topsis, labels
 
-    results = suitable.copy()
-    results["TOPSIS skoru"] = topsis["scores"]
-    results["ELECTRE üstünlük sayısı"] = electre["outgoing"]
-    results["ELECTRE gelen üstünlük"] = electre["incoming"]
-    results = results.iloc[topsis["ranking"]].drop(columns="elenme_nedeni")
-    results.insert(0, "Sıra", range(1, len(results) + 1))
-    st.subheader("Tüm uygun alternatifler")
-    st.dataframe(results, hide_index=True)
-    st.download_button("Sonuçları CSV indir", results.to_csv(index=False).encode("utf-8-sig"),
-                       file_name="sarj_sonuclari.csv", mime="text/csv")
+
+def show_result(suitable, topsis, inputs, phase_choice, assumptions):
+    """Öneri ve en fazla üç alternatif için sade karşılaştırma."""
+    best = suitable.iloc[int(topsis["ranking"][0])]
+    st.divider()
+    st.header("Size önerilen cihaz")
+    st.subheader(f"{best['marka']} {best['model']}")
+    st.write(f"**Fiyat:** {best['fiyat']:,.0f} TL")
+    st.write(f"**Efektif şarj gücü:** {best['efektif_guc']:.1f} kW")
+    st.write(f"**Tahmini günlük şarj süresi:** {best['sarj_suresi']:.1f} saat")
+    if assumptions:
+        st.write("**Teknik uygunluk:** Ön değerlendirme. Bilinmeyen bilgileri doğrulayın.")
+        st.caption(" ".join(assumptions))
+    else:
+        st.write("**Teknik uygunluk:** Girilen bütçe, faz ve güç sınırlarına uygun.")
+    st.write("**Neden önerildi?**")
+    st.markdown("- Bütçe ve girilen teknik koşullar içinde değerlendirildi.\n"
+                "- Fiyat, kullanılabilir güç, güvenlik, akıllı özellik, garanti ve "
+                "verimlilik birlikte karşılaştırıldığında ilk sırada yer aldı.")
+    if phase_choice == "Bilmiyorum":
+        st.caption(f"Bu cihaz {best['faz']} bağlantı gerektirir. Satın almadan önce evinizin fazını doğrulayın.")
+    if inputs["daily_km"] * inputs["consumption"] / 100 > inputs["battery_kwh"]:
+        st.info("Tahmini günlük enerji ihtiyacı batarya kapasitesinden fazla; gün içinde ek şarj gerekebilir.")
+    st.caption("Süre sabit güç varsayımıyla hesaplanır; şarj kayıpları ve kurulum bedeli dahil değildir. "
+               "Ürünler ve fiyatlar temsili veridir.")
+    if len(suitable) > 1:
+        st.subheader("Diğer uygun seçeneklerle karşılaştırın")
+        top = suitable.iloc[topsis["ranking"][:3]]
+        comparison = pd.DataFrame({
+            "Cihaz": top["marka"].to_numpy() + " " + top["model"].to_numpy(),
+            "Fiyat (TL)": top["fiyat"].to_numpy(),
+            "Efektif güç (kW)": top["efektif_guc"].round(1).to_numpy(),
+            "Günlük süre (saat)": top["sarj_suresi"].round(1).to_numpy(),
+            "Faz": top["faz"].to_numpy(),
+        })
+        st.dataframe(comparison, hide_index=True, width="stretch")
+
+
+def show_method():
+    with st.expander("Değerlendirme yöntemi"):
+        st.write("**Teknik uygunluk:** Cihaz fiyatı bütçeye, fazı ev altyapısına göre kontrol edilir. "
+                 "Şarj gücü araç, ev ve cihaz sınırlarının en küçüğüdür.")
+        st.write("**AHP:** Ölçütlere ağırlık verir. Bu sade arayüzde ölçütler eşit önemle değerlendirilir.")
+        st.write("**ELECTRE I:** Cihazların birbirine göre üstünlük ilişkisini inceler.")
+        st.write("**TOPSIS:** Uygun cihazları ideal seçeneğe yakınlıklarına göre sıralar.")
+
+
+def show_calculation_details(suitable=None, ahp=None, electre=None, topsis=None, labels=None):
+    with st.expander("Hesaplama detaylarını göster"):
+        if suitable is None:
+            st.write("Sonuçları görmek için formu doldurup butona basın.")
+            return
+        st.write("**AHP kriter ağırlıkları**")
+        st.dataframe(pd.DataFrame({"Kriter": labels, "Ağırlık": ahp["weights"]}),
+                     hide_index=True, width="stretch")
+        st.write(f"**CR:** {ahp['cr']:.4f} (0,10 altında: tutarlı)")
+        st.write("**ELECTRE I üstünlük sonuçları**")
+        ids = suitable["id"].tolist()
+        st.dataframe(pd.DataFrame({"Cihaz": ids,
+                                   "Üstün olduğu cihaz sayısı": electre["outgoing"],
+                                   "Üstün gelen cihaz sayısı": electre["incoming"]}),
+                     hide_index=True, width="stretch")
+        st.caption("Satırdaki cihaz sütundaki cihaza üstünse değer 1'dir.")
+        st.dataframe(pd.DataFrame(electre["outranking"].astype(int), index=ids, columns=ids),
+                     width="stretch")
+        st.write("**TOPSIS skorları**")
+        scores = pd.DataFrame({"Cihaz": ids, "Skor": topsis["scores"]})
+        st.dataframe(scores.iloc[topsis["ranking"]], hide_index=True, width="stretch")
+        st.caption("AHP karşılaştırmaları eşit önemlidir. ELECTRE eşikleri: uyum 0,65; "
+                   "uyumsuzluk 0,35. TOPSIS skoru seçenekler arası göreli sıralamadır.")
 
 
 def main():
-    st.set_page_config(page_title="Ev Tipi Şarj Karar Desteği", page_icon="⚡", layout="wide")
-    st.title("⚡ Ev Tipi Şarj İstasyonu Karar Destek Sistemi")
-    st.write("Teknik filtreleme → AHP → ELECTRE I → TOPSIS")
-    st.caption("Akademik örnek: CSV'deki ürünler ve fiyatlar temsili verilerdir. "
-               "Bütçe yalnızca cihaz fiyatını kapsar.")
-    inputs = get_user_inputs()
+    st.set_page_config(page_title="Ev şarj cihazı seçimi", layout="centered",
+                       initial_sidebar_state="collapsed")
+    apply_style()
+    st.title("Aracınız için uygun ev şarj cihazını bulun")
+    st.write("Aracınız, eviniz ve günlük kullanımınıza göre uygun seçenekleri karşılaştıralım.")
+    submitted, inputs, phase_choice, assumptions = get_user_inputs()
+    if not submitted:
+        show_method()
+        show_calculation_details()
+        return
     try:
         stations = load_stations(Path(__file__).parent / "data" / "sarj_istasyonlari.csv")
-        suitable, excluded = filter_stations(stations, **inputs)
+        suitable = get_suitable_stations(stations, inputs, phase_choice)
+        if suitable.empty:
+            st.warning("Bu bilgilerle uygun cihaz bulunamadı. Bütçenizi veya ev bilgilerinizi kontrol edin.")
+            show_method()
+            show_calculation_details()
+            return
+        ahp, electre, topsis, labels = analyze(suitable)
     except (ValueError, OSError) as error:
-        st.error(f"Veriler okunamadı veya doğrulanamadı: {error}")
-        st.stop()
-
-    st.header("1. Teknik filtreleme")
-    energy = inputs["daily_km"] * inputs["consumption"] / 100
-    st.write(f"Günlük enerji ihtiyacı: **{energy:.2f} kWh** · "
-             f"Uygun cihaz: **{len(suitable)} / {len(stations)}**")
-    st.caption("Faz uyumu aynı faz şartıyla değerlendirilir. Efektif güç = min(araç, ev, istasyon). "
-               "Süre = günlük enerji / efektif güç. Kayıplar ve güç değişimleri süreye dahil değildir; "
-               "verimlilik yalnızca karar kriteridir.")
-    if energy > inputs["battery_kwh"]:
-        st.warning("Günlük enerji ihtiyacı batarya kapasitesini aşıyor; gün içinde ek şarj gerekebilir.")
-    with st.expander("CSV verileri ve elenme nedenleri"):
-        st.dataframe(stations, hide_index=True)
-        st.dataframe(excluded[["id", "marka", "model", "elenme_nedeni"]], hide_index=True)
-    if suitable.empty:
-        st.warning("Uygun istasyon bulunamadı. Bütçeyi ve CSV'deki faz seçeneklerini kontrol edin.")
-        st.stop()
-
-    st.header("2. AHP kriter ağırlıkları")
-    labels = [value[0] for value in CRITERIA.values()]
-    directions = [value[1] for value in CRITERIA.values()]
-    ahp = calculate_ahp(get_ahp_matrix(labels))
-    st.dataframe(pd.DataFrame({"Kriter": labels, "Ağırlık": ahp["weights"]}), hide_index=True)
-    st.write(f"λ_max ≈ {ahp['lambda_max']:.4f} · CI = {ahp['ci']:.4f} · CR = {ahp['cr']:.4f}")
-    if not ahp["consistent"]:
-        st.error("CR ≥ 0.10: karşılaştırmalar tutarsız. Sıralama için ikili karşılaştırmaları düzenleyin.")
-        st.stop()
-    st.success("CR < 0.10: karşılaştırmalar tutarlı.")
-
-    st.header("3. ELECTRE I üstünlük analizi")
-    left, right = st.columns(2)
-    c_threshold = left.slider("Concordance (uyum) alt eşiği", 0.0, 1.0, 0.65, 0.05)
-    d_threshold = right.slider("Discordance (uyumsuzluk) üst eşiği", 0.0, 1.0, 0.35, 0.05)
-    matrix = suitable[list(CRITERIA)].to_numpy(dtype=float)
-    electre = calculate_electre(matrix, ahp["weights"], directions, c_threshold, d_threshold)
-    ids = suitable["id"].tolist()
-    st.caption("Satırdaki cihazın sütundakine üstünlüğü: uyum ≥ alt eşik ve uyumsuzluk ≤ üst eşik. "
-               "ELECTRE döngü veya karşılaştırılamayan çiftler üretebilir; TOPSIS'e ek bilgi sunar, "
-               "alternatifleri ayrıca elemez. Köşegen değerlendirilmez.")
-    with st.expander("ELECTRE matrisleri ve kriter kümeleri"):
-        for key, title in [("concordance", "Uyum matrisi"), ("discordance", "Uyumsuzluk matrisi"),
-                           ("outranking", "Üstünlük matrisi (1 = ilişki var)")]:
-            st.write(title)
-            values = electre[key].astype(int) if key == "outranking" else electre[key]
-            st.dataframe(pd.DataFrame(values, index=ids, columns=ids))
-        sets = []
-        for (i, j), indices in electre["concordance_sets"].items():
-            sets.append({"Çift": f"{ids[i]} → {ids[j]}",
-                         "Uyum kümesi": ", ".join(labels[k] for k in indices) or "∅",
-                         "Uyumsuzluk kümesi": ", ".join(labels[k] for k in electre["discordance_sets"][(i, j)]) or "∅"})
-        st.dataframe(pd.DataFrame(sets), hide_index=True)
-
-    st.header("4. TOPSIS sıralaması")
-    topsis = calculate_topsis(matrix, ahp["weights"], directions)
-    with st.expander("Hesaplama ayrıntıları"):
-        st.write("Fiyat maliyet; diğer kriterler faydadır. C = S− / (S+ + S−).")
-        for title, values in [("Karar matrisi", matrix), ("Normalize matris", topsis["normalized"]),
-                              ("Ağırlıklı matris", topsis["weighted"])]:
-            st.write(title)
-            st.dataframe(pd.DataFrame(values, index=ids, columns=labels))
-        st.write("İdeal çözümler")
-        st.dataframe(pd.DataFrame([topsis["ideal_positive"], topsis["ideal_negative"]],
-                                 index=["Pozitif ideal", "Negatif ideal"], columns=labels))
-        st.dataframe(pd.DataFrame({"S+": topsis["s_positive"], "S−": topsis["s_negative"],
-                                   "C": topsis["scores"]}, index=ids))
-        st.write("AHP sütun normalizasyonu")
-        st.dataframe(pd.DataFrame(ahp["normalized"], index=labels, columns=labels))
-    show_results(suitable, topsis, electre, ahp["weights"], labels)
+        st.error(f"Hesaplama tamamlanamadı: {error}")
+        return
+    show_result(suitable, topsis, inputs, phase_choice, assumptions)
+    show_method()
+    show_calculation_details(suitable, ahp, electre, topsis, labels)
 
 
 if __name__ == "__main__":
