@@ -6,18 +6,9 @@ import numpy as np
 import pandas as pd
 
 
-# Sıra, AHP matrisi ile karar matrisinde aynı kalmalıdır.
-CRITERIA = {
-    "fiyat": ("Fiyat (TL)", "cost"),
-    "efektif_guc": ("Efektif güç (kW)", "benefit"),
-    "guvenlik_puani": ("Güvenlik puanı", "benefit"),
-    "akilli_ozellik_puani": ("Akıllı özellik puanı", "benefit"),
-    "garanti_yil": ("Garanti (yıl)", "benefit"),
-    "verimlilik": ("Verimlilik", "benefit"),
-}
-
 COLUMNS = [
-    "id", "marka", "model", "faz", "guc_kw", "fiyat",
+    "id", "marka", "model", "supports_single_phase", "supports_three_phase",
+    "max_single_phase_kw", "max_three_phase_kw", "fiyat",
     "guvenlik_puani", "akilli_ozellik_puani", "garanti_yil", "verimlilik",
 ]
 
@@ -31,22 +22,29 @@ def load_stations(path: str | Path) -> pd.DataFrame:
     data = data[COLUMNS].copy()
     if data.empty or data.isna().any().any():
         raise ValueError("CSV boş olamaz ve eksik değer içeremez.")
-    for column in ["id", "marka", "model", "faz"]:
+    for column in ["id", "marka", "model"]:
         data[column] = data[column].astype(str).str.strip()
         if data[column].eq("").any():
             raise ValueError(f"{column} boş olamaz.")
     if data["id"].duplicated().any():
         raise ValueError("İstasyon kimlikleri benzersiz olmalıdır.")
-    data["faz"] = data["faz"].str.lower()
-    if not data["faz"].isin(["monofaz", "trifaz"]).all():
-        raise ValueError("Faz yalnızca monofaz veya trifaz olabilir.")
-    for column in COLUMNS[4:]:
+    for column in COLUMNS[3:]:
         data[column] = pd.to_numeric(data[column], errors="raise")
         if not np.isfinite(data[column]).all():
             raise ValueError(f"{column} sonlu sayılardan oluşmalıdır.")
-    for column in ["guc_kw", "fiyat"]:
-        if (data[column] <= 0).any():
-            raise ValueError(f"{column} sıfırdan büyük olmalıdır.")
+    for flag, power in [("supports_single_phase", "max_single_phase_kw"),
+                        ("supports_three_phase", "max_three_phase_kw")]:
+        if not data[flag].isin([0, 1]).all():
+            raise ValueError(f"{flag} yalnızca 0 veya 1 olabilir.")
+        if ((data[flag] == 1) & (data[power] <= 0)).any() or (data[power] < 0).any():
+            raise ValueError(f"{power} desteklenen fazda pozitif, diğer durumda negatif olamaz.")
+        if ((data[flag] == 0) & (data[power] != 0)).any():
+            raise ValueError(f"{power} desteklenmeyen fazda 0 olmalıdır.")
+        data[flag] = data[flag].astype(bool)
+    if not (data["supports_single_phase"] | data["supports_three_phase"]).all():
+        raise ValueError("Her cihaz en az bir fazı desteklemelidir.")
+    if (data["fiyat"] <= 0).any():
+        raise ValueError("fiyat sıfırdan büyük olmalıdır.")
     for column in ["guvenlik_puani", "akilli_ozellik_puani"]:
         if not data[column].between(0, 10).all():
             raise ValueError(f"{column} 0–10 arasında olmalıdır.")

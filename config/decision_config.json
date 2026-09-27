@@ -1,0 +1,12 @@
+{
+  "criteria": [
+    {"name": "fiyat", "label": "Fiyat (TL)", "type": "cost", "weight_source": "ahp"},
+    {"name": "efektif_guc", "label": "Efektif güç (kW)", "type": "benefit", "weight_source": "ahp"},
+    {"name": "guvenlik_puani", "label": "Güvenlik puanı", "type": "benefit", "weight_source": "ahp"},
+    {"name": "akilli_ozellik_puani", "label": "Akıllı özellik puanı", "type": "benefit", "weight_source": "ahp"},
+    {"name": "garanti_yil", "label": "Garanti (yıl)", "type": "benefit", "weight_source": "ahp"},
+    {"name": "verimlilik", "label": "Verimlilik", "type": "benefit", "weight_source": "ahp"}
+  ],
+  "ahp_matrix_file": "../data/ahp_ornek_matris.json",
+  "electre_thresholds": {"mode": "mean"}
+}

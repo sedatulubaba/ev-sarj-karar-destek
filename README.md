@@ -1,15 +1,8 @@
-# Ev Tipi Şarj İstasyonu Karar Destek Sistemi
+# Ev Şarj Cihazı Karar Desteği
 
-Python ve Streamlit ile hazırlanmış sade, modüler akademik proje.
+Python ve Streamlit ile hazırlanan akademik örnek. Ürünler ve fiyatlar **temsili** veridir.
 
-Arayüz Araç, Ev ve Kullanım bölümlerinden oluşur. Sonuç ekranı önerilen cihazı,
-fiyatını, efektif gücünü, yaklaşık günlük şarj süresini ve en fazla üç seçeneğin
-karşılaştırmasını gösterir. AHP, ELECTRE I ve TOPSIS çıktıları sayfa altındaki
-kapalı **Hesaplama detaylarını göster** bölümündedir.
-
-## Kurulum ve çalıştırma
-
-Python 3.10 veya üzeri kullanın. Proje klasöründe:
+## Çalıştırma
 
 ```powershell
 python -m venv .venv
@@ -17,57 +10,39 @@ python -m venv .venv
 .venv\Scripts\python -m streamlit run app.py
 ```
 
-Tarayıcıda `http://localhost:8501` adresini açın. Linux/macOS'ta Python yolu `.venv/bin/python` olur.
+Linux/macOS'ta Python yolu `.venv/bin/python` olur. [Streamlit Community Cloud](https://share.streamlit.io/) için depo kökündeki `app.py` giriş dosyasıdır.
 
-## Streamlit Community Cloud'da yayınlama
+## Karar akışı
 
-1. [Streamlit Community Cloud](https://share.streamlit.io/) üzerinde GitHub hesabınızla giriş yapın.
-2. **Create app** ile mevcut GitHub deposundan uygulama oluşturun.
-3. Repository: `sedatulubaba/ev-sarj-karar-destek`
-4. Branch: `main`
-5. Main file path: `app.py`
-6. Advanced settings altında Python **3.14** seçin (yerel testlerde kullanılan sürüm).
-7. **Deploy** düğmesine basın. Uygulama herhangi bir secret veya API anahtarı gerektirmez.
+`decision_engine.run_decision` aşağıdaki sırayı uygular:
 
-Bağımlılıklar kökteki `requirements.txt` dosyasından kurulur. Örnek CSV depoya dahildir.
-GitHub Pages yerine Streamlit Community Cloud kullanılır; uygulama Python sunucusu gerektirir.
+1. CSV şemasını ve değerlerini doğrular.
+2. Bütçe ile evin fazında cihaz desteğini kontrol eder; elenen her cihazın nedenini kaydeder.
+3. Her uygun cihaz için fazdaki kullanılabilir gücü alır ve `P_eff = min(P_araç, P_ev, P_istasyon_faz)` hesaplar. `E_gün = günlük_km × tüketim / 100`, `t_gün = E_gün / P_eff` olur. Süre ideal ve teoriktir; kayıplar hesaba katılmaz.
+4. Harici AHP karşılaştırma matrisini okur. Karelik, pozitiflik, ana köşegen ve karşılıklılık doğrulanır. Sütun normalizasyonu ve satır ortalaması ağırlıkları üretir. `lambda_max` gerçek en büyük özdeğerden hesaplanır; `CI = (lambda_max − n)/(n − 1)` ve `CR = CI/RI`. `CR >= 0.10` ise karar akışı hata ile durur. Çok küçük negatif CI yalnızca kayan nokta toleransı dahilinde sıfırlanır.
+5. TOPSIS nihai sıralamayı verir. Fiyat maliyet, diğer ölçütler faydadır. Vektör normalizasyonu, ağırlıklandırma, idealler, Öklid uzaklıkları ve `C* = S−/(S+ + S−)` hesaplanır. Tek veya özdeş alternatifler 0,5 alır.
+6. ELECTRE I üstünlük ilişkilerini ayrıca hesaplar. Varsayılan eşikler, uyum ve uyumsuzluk matrislerinin **köşegen dışı** değerlerinin ortalamasıdır. `config/decision_config.json` üzerinden `"mode": "fixed"`, `"concordance"` ve `"discordance"` ile sabit eşikler de verilebilir. Bu ilişki TOPSIS sıralamasını değiştirmez.
+7. Başka bir cihaz, TOPSIS birincisine ELECTRE'de tek yönlü üstünse `method_disagreement = true` döner ve kullanıcıya yöntem farkı söylenir. İlişki yokluğu veya iki yönlü üstünlük anlaşmazlık sayılmaz.
 
-Resmî kılavuz: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy
+## Veri ve ayarlar
 
-## Dosyalar
+- `data/sarj_istasyonlari.csv`: Faz desteği (`supports_single_phase`, `supports_three_phase` değerleri 0/1) ve faza göre güç (`max_single_phase_kw`, `max_three_phase_kw`) dahil cihaz verileri. Desteklenmeyen fazın gücü 0 olmalıdır. S06 iki fazı da destekleyen örnek cihazdır.
+- `config/decision_config.json`: Kriterlerin sırası, `name`, `type` (`benefit`/`cost`), `weight_source` (`ahp`) ve ELECTRE eşik politikası. Şu anda kaynak olarak yalnızca AHP ve cihaz verisindeki altı sayısal kriter desteklenir. Kriter sırası AHP dosyasıyla aynı olmalıdır.
+- `data/ahp_ornek_matris.json`: **Yalnızca örnek/test amaçlı tutarlı matris; uzman görüşü değildir.** Üretim veya tez verisi için gerçek uzman karşılaştırmalarıyla değiştirin veya `run_decision(..., matrix_path=...)` kullanın.
 
-- `app.py`: Türkçe arayüz ve modüllerin çalışma sırası.
-- `algorithms/filter.py`: teknik filtreler, enerji ve süre hesabı.
-- `algorithms/ahp.py`: kriter ağırlıkları ve tutarlılık hesabı.
-- `algorithms/electre.py`: uyum/uyumsuzluk kümeleri, matrisler ve üstünlük ilişkileri.
-- `algorithms/topsis.py`: ideal çözümler, uzaklıklar ve sıralama.
-- `utils/helpers.py`: CSV doğrulaması ve ortak normalizasyon.
-- `data/sarj_istasyonlari.csv`: 10 temsili istasyon.
-- `tests/test_algorithms.py`: bilinen sonuçlar ve sınır durumları.
-- `tests/test_app.py`: Streamlit kullanıcı akışları (varsayılan, trifaz, uygun cihaz yok, tutarsız AHP).
+Ev fazı bilinmiyorsa nihai teknik uygunluk ve sıralama yapılmaz. Diğer bilinmeyen teknik değerlerde arayüz varsayımları açıklar; sonuç ön değerlendirmedir.
 
-## Yöntem ve varsayımlar
+## Denetim sonucu
 
-1. Bütçeyi aşan veya ev ile aynı fazda olmayan cihazlar elenir. CSV farklı fazda çalışabilme bilgisi içermediğinden aynı faz şartı uygulanır. Gerçekte bazı monofaz cihazlar trifaz tesisata bağlanabilir; bu model bunu değerlendirmez. Ev gücü, diğer tüketimler sonrasında şarja ayrılabilecek güç olarak girilir.
-2. Efektif güç `min(araç AC gücü, ev gücü, istasyon gücü)`; günlük enerji `km × tüketim / 100`; süre `enerji / efektif güç` olarak hesaplanır. Batarya kapasitesi ideal tam şarj süresinde ve günlük enerji uyarısında kullanılır; günlük ihtiyacı sınırlandırmaz. Şarj kayıpları, sıcaklık ve güç değişimi süre hesabına dahil değildir.
-3. Sade arayüzde AHP ikili karşılaştırma matrisi tüm kriterler eşit önemle başlayacak şekilde 1 değerlerinden oluşur. AHP modülü genel bir ikili matrisi de kabul eder; sütun normalizasyonunun satır ortalamaları ağırlıkları verir. `lambda_max ≈ ortalama((A @ w) / w)`, `CI = (lambda_max − n) / (n − 1)`, `CR = CI / RI`. Altı kriter için Saaty RI değeri 1.24 kullanılır. Bu, satır ortalaması ağırlıklarıyla yaklaşık lambda hesabıdır. `CR < 0.10` tutarlı kabul edilir.
-4. Karar kriterleri sırasıyla fiyat (maliyet), efektif güç, güvenlik, akıllı özellik, garanti ve verimliliktir (fayda). Günlük şarj süresi güçten türediği için ayrıca kriter yapılmamıştır. Verimlilik 0–1, puanlar 0–10 aralığındadır.
-5. ELECTRE I ve TOPSIS sütunlarda Öklid normuyla normalizasyon yapar, ardından AHP ağırlıklarını uygular. ELECTRE uyumu, satır alternatifinin kötü olmadığı kriterlerin ağırlık toplamıdır. Uyumsuzluk, ağırlıklı matriste en büyük aleyhte farkın tüm kriterlerdeki en büyük mutlak farka oranıdır. Fark yoksa 0 alınır. Sade arayüzde eşikler 0.65 ve 0.35'tir. Köşegen üstünlük ilişkisi yoktur.
-6. ELECTRE ilişkileri açıklayıcı olarak sunulur; ayrıca eleme yapılmaz. TOPSIS bütün teknik olarak uygun alternatifleri sıralar. Böylece ELECTRE döngüleri veya karşılaştırılamayan alternatifler TOPSIS'i engellemez.
-7. TOPSIS `C = S− / (S+ + S−)` ile azalan sırada sıralar. Tek alternatif veya tüm alternatifler aynıysa skor 0.5 kabul edilir. Eşitlikte CSV sırası korunur. Bu skor bir olasılık değildir.
+`run_decision(user_inputs)` tek, JSON'a dönüştürülebilir sözlük döndürür: kullanıcı girdileri ve varsayımlar; uygun ve elenen cihazlar; AHP matrisi, ağırlıklar, `lambda_max`, `CI`, `CR`; TOPSIS'in ham, normalize ve ağırlıklı matrisleri, idealleri, uzaklıkları, skorları ve sırası; ELECTRE'nin kümeleri, matrisleri ve eşikleri; nihai TOPSIS sıralaması, yöntem farkı ve açıklama. Hiç uygun cihaz kalmazsa `status = "no_alternatives"` ve boş sıralama döner. CR tutarsızlığında `InconsistentAHPError` yükselir.
 
-CSV ürünleri ve fiyatları tamamen temsili olup gerçek piyasa önerisi değildir. Bütçe cihaz bedelidir; kurulum maliyeti modele dahil değildir.
+Streamlit ekranında yalnızca karar için gerekli bilgiler gösterilir. **Hesaplama detaylarını göster** bölümünden tam denetim sonucu JSON olarak indirilebilir.
 
-Teknik bir değer için **Bilmiyorum** seçilirse arayüz ön değerlendirme yapar:
-araç AC gücü 7,4 kW, batarya 60 kWh, tüketim 18 kWh/100 km ve evde
-şarja ayrılabilen güç 3,7 kW varsayılır. Faz bilinmiyorsa mevcut teknik filtre
-monofaz ve trifaz için ayrı ayrı çalıştırılır. Sonuç kesin uyumluluk olarak
-sunulmaz; gerçek değerler ve faz satın almadan önce doğrulanmalıdır.
-
-## Test
+## Testler
 
 ```powershell
-.venv\Scripts\python -m unittest discover -s tests -v
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pytest -q
 ```
 
-Örnek: 50 km/gün, 18 kWh/100 km tüketim, 11 kW araç AC gücü, 7.4 kW ev gücü, monofaz ve 19.000 TL bütçede S01, S02 ve S04 kalır. Günlük enerji 9 kWh; S02 için günlük süre yaklaşık 1.22 saattir.
+`algorithms/` bağımsız matematiksel hesaplar; `utils/` veri ve config doğrulaması; `decision_engine.py` sıralı akış ve denetim çıktısı; `app.py` arayüzdür.

@@ -21,12 +21,12 @@ class AppTests(unittest.TestCase):
         self.assertTrue(any("Teknik uygunluk" in item.value for item in app.markdown))
         self.assertGreaterEqual(len(app.dataframe), 3)
 
-    def test_unknown_phase_is_provisional(self):
+    def test_unknown_phase_requires_confirmation(self):
         app = self.create_app()
         app.selectbox(key="home_phase").set_value("Bilmiyorum")
         app.button[0].click().run()
         self.assertEqual(len(app.exception), 0)
-        self.assertTrue(any("Ön değerlendirme" in item.value for item in app.markdown))
+        self.assertTrue(any("Kesin teknik uygunluk" in item.value for item in app.warning))
 
     def test_unknown_vehicle_value_is_provisional(self):
         app = self.create_app()

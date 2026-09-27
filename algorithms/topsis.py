@@ -17,7 +17,8 @@ def calculate_topsis(matrix, weights, directions):
     # Tek alternatif veya tamamen aynı alternatifler için nötr skor.
     scores = np.divide(s_negative, total, out=np.full_like(total, 0.5), where=total > 0)
     ranking = np.argsort(-scores, kind="stable")
-    return {"normalized": normalized, "weighted": weighted,
+    return {"raw_matrix": np.asarray(matrix, dtype=float),
+            "normalized": normalized, "weighted": weighted,
             "ideal_positive": ideal_positive, "ideal_negative": ideal_negative,
             "s_positive": s_positive, "s_negative": s_negative,
             "scores": scores, "ranking": ranking}

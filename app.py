@@ -1,25 +1,19 @@
-"""Ev tipi şarj cihazı seçim arayüzü. Çalıştırma: streamlit run app.py"""
+"""Sade kullanıcı arayüzü; karar hesabı decision_engine modülündedir."""
 
-from pathlib import Path
+import json
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
-from algorithms.ahp import calculate_ahp
-from algorithms.electre import calculate_electre
-from algorithms.filter import filter_stations
-from algorithms.topsis import calculate_topsis
-from utils.helpers import CRITERIA, load_stations
+from decision_engine import run_decision
 
 
-# Bilinmeyen değerler yalnızca ön değerlendirme için kullanılır.
+# Bilinmeyen sayısal değerler yalnızca ön değerlendirme için kullanılır.
 ASSUMED = {"vehicle_ac_kw": 7.4, "battery_kwh": 60.0,
            "consumption": 18.0, "home_max_kw": 3.7}
 
 
 def apply_style():
-    """Boşluk, sakin renkler ve küçük ekranlarda rahat okuma."""
     st.markdown("""
     <style>
       .block-container { max-width: 760px; padding-top: 3.5rem; padding-bottom: 4rem; }
@@ -49,7 +43,6 @@ def apply_style():
 
 
 def optional_number(label, key, default, minimum, step):
-    """Her teknik sayısal alan için ayrı Bilmiyorum seçimi."""
     st.markdown(f'<p class="field-label">{label}</p>', unsafe_allow_html=True)
     unknown = st.session_state.get(f"{key}_unknown", False)
     value = st.number_input(label, min_value=minimum, value=default, step=step,
@@ -59,7 +52,6 @@ def optional_number(label, key, default, minimum, step):
 
 
 def get_user_inputs():
-    """Üç bölümlü formdan değerleri ve varsayım açıklamalarını alır."""
     assumptions = []
     with st.form("charging_form"):
         st.subheader("Araç")
@@ -84,8 +76,6 @@ def get_user_inputs():
                                                "home_max_kw", 7.4, 0.1, 0.1)
         if unknown:
             assumptions.append("Evde şarja ayrılabilecek güç 3,7 kW varsayıldı.")
-        if phase_choice == "Bilmiyorum":
-            assumptions.append("Ev fazı bilinmiyor; iki faz seçeneği ayrı ayrı değerlendirildi.")
         st.divider()
         st.subheader("Kullanım")
         st.markdown('<p class="field-label">Günlük ortalama km</p>', unsafe_allow_html=True)
@@ -98,102 +88,82 @@ def get_user_inputs():
         submitted = st.form_submit_button("Uygun şarj cihazlarını göster", type="primary")
     inputs = {"daily_km": daily_km, "vehicle_ac_kw": vehicle_ac_kw,
               "battery_kwh": battery_kwh, "consumption": consumption,
-              "home_max_kw": home_max_kw, "budget": budget}
-    return submitted, inputs, phase_choice, assumptions
+              "home_phase": phase_choice.lower(), "home_max_kw": home_max_kw,
+              "budget": budget}
+    return submitted, inputs, assumptions
 
 
-def get_suitable_stations(stations, inputs, phase_choice):
-    """Bilinmeyen fazda mevcut filtreyi iki faz için ayrı çalıştırır."""
-    phases = (["monofaz", "trifaz"] if phase_choice == "Bilmiyorum"
-              else [phase_choice.lower()])
-    parts = []
-    for phase in phases:
-        suitable, _ = filter_stations(stations, home_phase=phase, **inputs)
-        parts.append(suitable)
-    return pd.concat(parts, ignore_index=True)
-
-
-def analyze(suitable):
-    """Mevcut AHP, ELECTRE I ve TOPSIS fonksiyonlarını kullanır."""
-    labels = [item[0] for item in CRITERIA.values()]
-    directions = [item[1] for item in CRITERIA.values()]
-    # Ana ekranda karşılaştırma formu yok; eşit ağırlıklar seçilmiştir.
-    ahp = calculate_ahp(np.ones((len(CRITERIA), len(CRITERIA))))
-    matrix = suitable[list(CRITERIA)].to_numpy(dtype=float)
-    electre = calculate_electre(matrix, ahp["weights"], directions)
-    topsis = calculate_topsis(matrix, ahp["weights"], directions)
-    return ahp, electre, topsis, labels
-
-
-def show_result(suitable, topsis, inputs, phase_choice, assumptions):
-    """Öneri ve en fazla üç alternatif için sade karşılaştırma."""
-    best = suitable.iloc[int(topsis["ranking"][0])]
+def show_result(result):
+    suitable = pd.DataFrame(result["filtered_alternatives"])
+    ranked = result["final_ranking"]
+    best = suitable.set_index("id").loc[ranked[0]["id"]]
     st.divider()
     st.header("Size önerilen cihaz")
     st.subheader(f"{best['marka']} {best['model']}")
     st.write(f"**Fiyat:** {best['fiyat']:,.0f} TL")
     st.write(f"**Efektif şarj gücü:** {best['efektif_guc']:.1f} kW")
     st.write(f"**Tahmini günlük şarj süresi:** {best['sarj_suresi']:.1f} saat")
-    if assumptions:
+    if result["input_assumptions"]:
         st.write("**Teknik uygunluk:** Ön değerlendirme. Bilinmeyen bilgileri doğrulayın.")
-        st.caption(" ".join(assumptions))
+        st.caption(" ".join(result["input_assumptions"]))
     else:
         st.write("**Teknik uygunluk:** Girilen bütçe, faz ve güç sınırlarına uygun.")
     st.write("**Neden önerildi?**")
-    st.markdown("- Bütçe ve girilen teknik koşullar içinde değerlendirildi.\n"
-                "- Fiyat, kullanılabilir güç, güvenlik, akıllı özellik, garanti ve "
-                "verimlilik birlikte karşılaştırıldığında ilk sırada yer aldı.")
-    if phase_choice == "Bilmiyorum":
-        st.caption(f"Bu cihaz {best['faz']} bağlantı gerektirir. Satın almadan önce evinizin fazını doğrulayın.")
-    if inputs["daily_km"] * inputs["consumption"] / 100 > inputs["battery_kwh"]:
+    for explanation in result["explanation"]:
+        if explanation.startswith("Yöntemler arasında"):
+            st.warning(explanation)
+        else:
+            st.markdown(f"- {explanation}")
+    if result["user_inputs"]["daily_km"] * result["user_inputs"]["consumption"] / 100 > result["user_inputs"]["battery_kwh"]:
         st.info("Tahmini günlük enerji ihtiyacı batarya kapasitesinden fazla; gün içinde ek şarj gerekebilir.")
-    st.caption("Süre sabit güç varsayımıyla hesaplanır; şarj kayıpları ve kurulum bedeli dahil değildir. "
+    st.caption("Süre ideal ve teoriktir; şarj kayıpları ve kurulum bedeli dahil değildir. "
                "Ürünler ve fiyatlar temsili veridir.")
-    if len(suitable) > 1:
+    if len(ranked) > 1:
         st.subheader("Diğer uygun seçeneklerle karşılaştırın")
-        top = suitable.iloc[topsis["ranking"][:3]]
-        comparison = pd.DataFrame({
-            "Cihaz": top["marka"].to_numpy() + " " + top["model"].to_numpy(),
-            "Fiyat (TL)": top["fiyat"].to_numpy(),
-            "Efektif güç (kW)": top["efektif_guc"].round(1).to_numpy(),
-            "Günlük süre (saat)": top["sarj_suresi"].round(1).to_numpy(),
-            "Faz": top["faz"].to_numpy(),
-        })
-        st.dataframe(comparison, hide_index=True, width="stretch")
+        by_id = suitable.set_index("id")
+        rows = []
+        for item in ranked[:3]:
+            row = by_id.loc[item["id"]]
+            rows.append({"Cihaz": f"{row['marka']} {row['model']}", "Fiyat (TL)": row["fiyat"],
+                         "Efektif güç (kW)": round(row["efektif_guc"], 1),
+                         "Günlük ideal süre (saat)": round(row["sarj_suresi"], 1)})
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
 
 def show_method():
     with st.expander("Değerlendirme yöntemi"):
-        st.write("**Teknik uygunluk:** Cihaz fiyatı bütçeye, fazı ev altyapısına göre kontrol edilir. "
-                 "Şarj gücü araç, ev ve cihaz sınırlarının en küçüğüdür.")
-        st.write("**AHP:** Ölçütlere ağırlık verir. Bu sade arayüzde ölçütler eşit önemle değerlendirilir.")
-        st.write("**ELECTRE I:** Cihazların birbirine göre üstünlük ilişkisini inceler.")
-        st.write("**TOPSIS:** Uygun cihazları ideal seçeneğe yakınlıklarına göre sıralar.")
+        st.write("**Teknik uygunluk:** Bütçe ve ev fazı kontrol edilir; cihazın o fazda "
+                 "sunabildiği güç araç ve ev sınırlarıyla karşılaştırılır.")
+        st.write("**AHP:** Kriter ağırlıkları harici karşılaştırma matrisinden hesaplanır. "
+                 "Mevcut dosya örnek amaçlıdır; CR 0,10 veya üzerindeyse karar verilmez.")
+        st.write("**TOPSIS:** Nihai sıralamayı belirler.")
+        st.write("**ELECTRE I:** Üstünlük ilişkilerini ayrıca inceler; sıralamayı değiştirmez.")
 
 
-def show_calculation_details(suitable=None, ahp=None, electre=None, topsis=None, labels=None):
+def show_calculation_details(result=None):
     with st.expander("Hesaplama detaylarını göster"):
-        if suitable is None:
-            st.write("Sonuçları görmek için formu doldurup butona basın.")
+        if result is None:
+            st.write("Hesaplama sonuçları için formu doldurup butona basın.")
             return
         st.write("**AHP kriter ağırlıkları**")
-        st.dataframe(pd.DataFrame({"Kriter": labels, "Ağırlık": ahp["weights"]}),
+        st.caption(result["ahp_matrix_description"])
+        st.dataframe(pd.DataFrame(result["ahp_weights"].items(), columns=["Kriter", "Ağırlık"]),
                      hide_index=True, width="stretch")
-        st.write(f"**CR:** {ahp['cr']:.4f} (0,10 altında: tutarlı)")
-        st.write("**ELECTRE I üstünlük sonuçları**")
-        ids = suitable["id"].tolist()
-        st.dataframe(pd.DataFrame({"Cihaz": ids,
-                                   "Üstün olduğu cihaz sayısı": electre["outgoing"],
-                                   "Üstün gelen cihaz sayısı": electre["incoming"]}),
-                     hide_index=True, width="stretch")
-        st.caption("Satırdaki cihaz sütundaki cihaza üstünse değer 1'dir.")
-        st.dataframe(pd.DataFrame(electre["outranking"].astype(int), index=ids, columns=ids),
+        st.write(f"**λ_max:** {result['lambda_max']:.4f} · **CI:** {result['CI']:.4f} · "
+                 f"**CR:** {result['CR']:.4f}")
+        st.write("**ELECTRE I üstünlük matrisi**")
+        ids = [row["id"] for row in result["filtered_alternatives"]]
+        st.caption(f"Eşikler: uyum {result['electre']['concordance_threshold']:.3f}, "
+                   f"uyumsuzluk {result['electre']['discordance_threshold']:.3f} "
+                   f"({result['electre']['threshold_mode']}).")
+        st.dataframe(pd.DataFrame(result["electre"]["outranking_matrix"], index=ids, columns=ids).astype(int),
                      width="stretch")
         st.write("**TOPSIS skorları**")
-        scores = pd.DataFrame({"Cihaz": ids, "Skor": topsis["scores"]})
-        st.dataframe(scores.iloc[topsis["ranking"]], hide_index=True, width="stretch")
-        st.caption("AHP karşılaştırmaları eşit önemlidir. ELECTRE eşikleri: uyum 0,65; "
-                   "uyumsuzluk 0,35. TOPSIS skoru seçenekler arası göreli sıralamadır.")
+        st.dataframe(pd.DataFrame(result["final_ranking"])[["rank", "id", "C_star"]],
+                     hide_index=True, width="stretch")
+        st.download_button("Tam denetim sonucunu JSON indir",
+                           json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"),
+                           file_name="sarj_karar_audit.json", mime="application/json")
 
 
 def main():
@@ -202,26 +172,30 @@ def main():
     apply_style()
     st.title("Aracınız için uygun ev şarj cihazını bulun")
     st.write("Aracınız, eviniz ve günlük kullanımınıza göre uygun seçenekleri karşılaştıralım.")
-    submitted, inputs, phase_choice, assumptions = get_user_inputs()
+    submitted, inputs, assumptions = get_user_inputs()
     if not submitted:
         show_method()
         show_calculation_details()
         return
-    try:
-        stations = load_stations(Path(__file__).parent / "data" / "sarj_istasyonlari.csv")
-        suitable = get_suitable_stations(stations, inputs, phase_choice)
-        if suitable.empty:
-            st.warning("Bu bilgilerle uygun cihaz bulunamadı. Bütçenizi veya ev bilgilerinizi kontrol edin.")
-            show_method()
-            show_calculation_details()
-            return
-        ahp, electre, topsis, labels = analyze(suitable)
-    except (ValueError, OSError) as error:
-        st.error(f"Hesaplama tamamlanamadı: {error}")
+    if inputs["home_phase"] == "bilmiyorum":
+        st.warning("Kesin teknik uygunluk ve sıralama için evinizin monofaz mı trifaz mı "
+                   "olduğunu öğrenin. Elektrik panosu veya bir elektrikçi yardımcı olabilir.")
+        show_method()
+        show_calculation_details()
         return
-    show_result(suitable, topsis, inputs, phase_choice, assumptions)
+    try:
+        result = run_decision(inputs, assumptions=assumptions)
+    except (ValueError, OSError, ArithmeticError) as error:
+        st.error(f"Karar hesaplanamadı: {error}")
+        return
+    if result["status"] == "no_alternatives":
+        st.warning(result["explanation"][0])
+        show_method()
+        show_calculation_details()
+        return
+    show_result(result)
     show_method()
-    show_calculation_details(suitable, ahp, electre, topsis, labels)
+    show_calculation_details(result)
 
 
 if __name__ == "__main__":
