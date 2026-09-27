@@ -1,0 +1,11 @@
+id,marka,model,faz,guc_kw,fiyat,guvenlik_puani,akilli_ozellik_puani,garanti_yil,verimlilik
+S01,OrnekSarj,Ev Mini,monofaz,3.7,12000,7,4,2,0.91
+S02,OrnekSarj,Ev Plus,monofaz,7.4,19000,8,7,3,0.94
+S03,DemoVolt,Akilli Ev,monofaz,7.4,24000,9,9,3,0.96
+S04,DemoVolt,Ekonomik,monofaz,7.4,15000,7,5,2,0.92
+S05,TestEnerji,Guvenli Ev,monofaz,7.4,28000,10,8,5,0.97
+S06,OrnekSarj,Tri Baslangic,trifaz,11,22000,8,6,2,0.94
+S07,DemoVolt,Tri Akilli,trifaz,11,29000,9,9,3,0.96
+S08,TestEnerji,Tri Pro,trifaz,22,38000,10,10,5,0.97
+S09,OrnekSarj,Tri Ekonomik,trifaz,22,26000,7,6,2,0.93
+S10,TestEnerji,Tri Guvenli,trifaz,11,32000,10,7,4,0.96
