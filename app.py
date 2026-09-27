@@ -22,14 +22,16 @@ def apply_style():
     """Boşluk, sakin renkler ve küçük ekranlarda rahat okuma."""
     st.markdown("""
     <style>
-      :root { color-scheme: light; }
-      .stApp { background: #fafafa; color: #1d1d1f; }
-      .block-container { max-width: 850px; padding-top: 4rem; padding-bottom: 5rem; }
-      h1, h2, h3, p, label { letter-spacing: -0.02em; }
-      h1 { font-size: clamp(2rem, 5vw, 3rem) !important; font-weight: 650 !important;
-           line-height: 1.12 !important; }
-      h2 { font-size: 1.35rem !important; font-weight: 620 !important; margin-top: 2rem !important; }
-      h3 { font-size: 1.12rem !important; font-weight: 600 !important; }
+      .block-container { max-width: 760px; padding-top: 3.5rem; padding-bottom: 4rem; }
+      h1, h2, h3 { letter-spacing: -0.03em; color: #1d1d1f !important; }
+      h1 { font-size: clamp(2rem, 5vw, 2.75rem) !important; font-weight: 650 !important;
+           line-height: 1.16 !important; margin-bottom: .6rem !important; }
+      h2 { font-size: 1.4rem !important; font-weight: 620 !important; margin-top: 2rem !important; }
+      h3 { font-size: 1.15rem !important; font-weight: 620 !important; margin-top: 1.8rem !important; }
+      .field-label { color: #1d1d1f !important; font-size: 1rem !important;
+           font-weight: 550 !important; margin: 0 0 .35rem !important; }
+      [data-testid="stWidgetLabel"] p { color: #303034 !important; font-size: .9rem !important; }
+      [data-testid="stCheckbox"] { margin-top: -.25rem; margin-bottom: 1rem; }
       [data-testid="stForm"] { border: 0; padding: 0; background: transparent; }
       [data-testid="stFormSubmitButton"] button { background: #1d1d1f; color: #fff;
           border: 1px solid #1d1d1f; border-radius: 10px; min-height: 2.9rem;
@@ -40,7 +42,7 @@ def apply_style():
           background: #fff; box-shadow: none; }
       hr { border-color: #e5e5e7 !important; }
       @media (max-width: 640px) {
-        .block-container { padding: 2rem 1.1rem 3rem; }
+        .block-container { padding: 1.7rem 1.1rem 3rem; }
         h1 { font-size: 2rem !important; }
       }
     </style>""", unsafe_allow_html=True)
@@ -48,9 +50,11 @@ def apply_style():
 
 def optional_number(label, key, default, minimum, step):
     """Her teknik sayısal alan için ayrı Bilmiyorum seçimi."""
-    unknown = st.checkbox("Bilmiyorum", key=f"{key}_unknown")
+    st.markdown(f'<p class="field-label">{label}</p>', unsafe_allow_html=True)
+    unknown = st.session_state.get(f"{key}_unknown", False)
     value = st.number_input(label, min_value=minimum, value=default, step=step,
-                            disabled=unknown, key=key)
+                            disabled=unknown, key=key, label_visibility="collapsed")
+    unknown = st.checkbox("Bilmiyorum", key=f"{key}_unknown")
     return (ASSUMED[key] if unknown else value), unknown
 
 
@@ -73,8 +77,9 @@ def get_user_inputs():
             assumptions.append("Tüketim 18 kWh/100 km varsayıldı.")
         st.divider()
         st.subheader("Ev")
+        st.markdown('<p class="field-label">Elektrik altyapısı</p>', unsafe_allow_html=True)
         phase_choice = st.selectbox("Elektrik altyapısı", ["Monofaz", "Trifaz", "Bilmiyorum"],
-                                    key="home_phase")
+                                    key="home_phase", label_visibility="collapsed")
         home_max_kw, unknown = optional_number("Şarja ayrılabilecek maksimum güç (kW)",
                                                "home_max_kw", 7.4, 0.1, 0.1)
         if unknown:
@@ -83,10 +88,13 @@ def get_user_inputs():
             assumptions.append("Ev fazı bilinmiyor; iki faz seçeneği ayrı ayrı değerlendirildi.")
         st.divider()
         st.subheader("Kullanım")
+        st.markdown('<p class="field-label">Günlük ortalama km</p>', unsafe_allow_html=True)
         daily_km = st.number_input("Günlük ortalama km", min_value=0.0, value=50.0,
-                                   step=1.0, key="daily_km")
+                                   step=1.0, key="daily_km", label_visibility="collapsed")
+        st.markdown('<p class="field-label">Maksimum cihaz bütçesi (TL)</p>', unsafe_allow_html=True)
         budget = st.number_input("Maksimum cihaz bütçesi (TL)", min_value=1.0,
-                                 value=30000.0, step=1000.0, key="budget")
+                                 value=30000.0, step=1000.0, key="budget",
+                                 label_visibility="collapsed")
         submitted = st.form_submit_button("Uygun şarj cihazlarını göster", type="primary")
     inputs = {"daily_km": daily_km, "vehicle_ac_kw": vehicle_ac_kw,
               "battery_kwh": battery_kwh, "consumption": consumption,
